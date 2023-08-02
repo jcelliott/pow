@@ -137,7 +137,7 @@ defmodule Pow.Plug.Session do
   @spec fetch(Conn.t(), Config.t()) :: {Conn.t(), map() | nil}
   def fetch(conn, config) do
     case client_store_fetch(conn, config) do
-      {nil, conn}        -> {conn, nil}
+      {nil, conn} -> {conn, nil}
       {session_id, conn} -> fetch(conn, session_id, config)
     end
   end
@@ -146,6 +146,7 @@ defmodule Pow.Plug.Session do
     {store, store_config} = store(config)
 
     {session_id, store.get(store_config, session_id)}
+    |> IO.inspect(label: "##### Pow.Plug.Session fetch store.get")
     |> convert_old_session_value()
     |> handle_fetched_session_value(conn, config)
   end
@@ -174,7 +175,7 @@ defmodule Pow.Plug.Session do
   @impl true
   @spec create(Conn.t(), map(), Config.t()) :: {Conn.t(), map()}
   def create(conn, user, config) do
-    metadata         = Map.get(conn.private, :pow_session_metadata, [])
+    metadata = Map.get(conn.private, :pow_session_metadata, [])
     {user, metadata} = session_value(user, metadata)
 
     conn =
@@ -199,7 +200,7 @@ defmodule Pow.Plug.Session do
 
   defp before_send_create(conn, value, config) do
     {store, store_config} = store(config)
-    session_id            = gen_session_id(config)
+    session_id = gen_session_id(config)
 
     register_before_send(conn, fn conn ->
       store.put(store_config, session_id, value)
@@ -238,10 +239,13 @@ defmodule Pow.Plug.Session do
   end
 
   # TODO: Remove by 1.1.0
-  defp convert_old_session_value({session_id, {user, timestamp}}) when is_number(timestamp), do: {session_id, {user, inserted_at: timestamp}}
+  defp convert_old_session_value({session_id, {user, timestamp}}) when is_number(timestamp),
+    do: {session_id, {user, inserted_at: timestamp}}
+
   defp convert_old_session_value(any), do: any
 
   defp handle_fetched_session_value({_session_id, :not_found}, conn, _config), do: {conn, nil}
+
   defp handle_fetched_session_value({session_id, nil}, conn, config) do
     {store, store_config} = store(config)
 
@@ -249,7 +253,9 @@ defmodule Pow.Plug.Session do
 
     {conn, nil}
   end
-  defp handle_fetched_session_value({session_id, {user, metadata}}, conn, config) when is_list(metadata) do
+
+  defp handle_fetched_session_value({session_id, {user, metadata}}, conn, config)
+       when is_list(metadata) do
     conn
     |> Conn.put_private(:pow_session_metadata, metadata)
     |> renew_stale_session(session_id, user, metadata, config)
@@ -260,24 +266,25 @@ defmodule Pow.Plug.Session do
     |> Keyword.get(:inserted_at)
     |> session_stale?(config)
     |> case do
-      true  -> lock_create(conn, session_id, user, config)
+      true -> lock_create(conn, session_id, user, config)
       false -> {conn, user}
     end
   end
 
   defp lock_create(conn, session_id, user, config) do
-    id    = {[__MODULE__, session_id], self()}
+    id = {[__MODULE__, session_id], self()}
     nodes = Node.list() ++ [node()]
 
     case :global.set_lock(id, nodes, 0) do
       true ->
         {conn, user} = create(conn, user, config)
 
-        conn = register_before_send(conn, fn conn ->
-          :global.del_lock(id, nodes)
+        conn =
+          register_before_send(conn, fn conn ->
+            :global.del_lock(id, nodes)
 
-          conn
-        end)
+            conn
+          end)
 
         {conn, user}
 
@@ -290,7 +297,9 @@ defmodule Pow.Plug.Session do
     ttl = Config.get(config, :session_ttl_renewal, @session_ttl_renewal)
     session_stale?(inserted_at, config, ttl)
   end
+
   defp session_stale?(_inserted_at, _config, nil), do: false
+
   defp session_stale?(inserted_at, _config, ttl) do
     inserted_at + ttl < timestamp()
   end
@@ -314,8 +323,15 @@ defmodule Pow.Plug.Session do
   defp client_store_fetch(conn, config) do
     conn = Conn.fetch_session(conn)
 
-    with session_id when is_binary(session_id) <- Conn.get_session(conn, session_key(config)),
-         {:ok, session_id}                     <- Plug.verify_token(conn, signing_salt(), session_id) do
+    Conn.get_session(conn)
+    |> IO.inspect(label: "##### Pow.Plug.Session client_store_fetch entire session")
+
+    with session_id when is_binary(session_id) <-
+           Conn.get_session(conn, session_key(config))
+           |> IO.inspect(label: "##### Pow.Plug.Session client_store_fetch get_session"),
+         {:ok, session_id} <-
+           Plug.verify_token(conn, signing_salt(), session_id)
+           |> IO.inspect(label: "##### Pow.Plug.Session client_store_fetch verify_token") do
       {session_id, conn}
     else
       _any -> {nil, conn}
